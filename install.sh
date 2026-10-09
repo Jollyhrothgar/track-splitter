@@ -26,7 +26,7 @@ fi
 mkdir -p "$target"
 if [ "$copy" = yes ]; then
   mkdir "$dest"
-  cp -R "$here/SKILL.md" "$here/scripts" "$dest/"
+  cp -R "$here/SKILL.md" "$here/scripts" "$here/LICENSE" "$dest/"
   echo "Copied to $dest"
 else
   ln -s "$here" "$dest"

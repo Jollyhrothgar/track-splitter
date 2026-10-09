@@ -7,7 +7,8 @@
     uv run pair_mics.py --mic Zoom 2026-10-08
     uv run pair_mics.py --label aup4="Ear Trumpet" --label 261008=Zoom 2026-10-08
 
-Works for one mic or many. Recordings that overlap in time are found by
+Works for one mic or many, with recordings as WAV, FLAC, MP3, M4A, AIFF or OGG
+files or Audacity (.aup4) projects. Recordings that overlap in time are found by
 matching their loudness over time, so nothing needs to be in sync beforehand.
 Every take is cut at the same moment from each mic that caught it and written
 to "<folder>/takes", numbered in the order they were played:
@@ -40,9 +41,12 @@ def mic_name(path, labels):
     for pattern, name in labels:
         if pattern in path.name:
             return name
-    tagged = subprocess.run(["xattr", "-p", "com.shure.motiv.microphoneUsed", str(path)], capture_output=True, text=True)
-    if tagged.returncode == 0 and tagged.stdout.strip():
-        return tagged.stdout.strip()
+    try:  # recordings made with Shure's MOTIV app carry the mic's name (macOS only)
+        tagged = subprocess.run(["xattr", "-p", "com.shure.motiv.microphoneUsed", str(path)], capture_output=True, text=True)
+        if tagged.returncode == 0 and tagged.stdout.strip():
+            return tagged.stdout.strip()
+    except FileNotFoundError:
+        pass
     return path.stem
 
 
@@ -170,7 +174,7 @@ def carry_crops(old, new, crops):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("folder", type=Path, help="session folder of .wav recordings and .aup4 projects")
+    parser.add_argument("folder", type=Path, help="session folder of recordings (audio files and Audacity .aup4 projects)")
     parser.add_argument("--label", action="append", default=[], metavar="TEXT=NAME", help='mic name for recordings whose file name contains TEXT, e.g. aup4="Ear Trumpet"')
     parser.add_argument("--mic", metavar="NAME", help="every recording in the folder came from this one mic (skips alignment)")
     parser.add_argument("--skip", action="append", default=[], metavar="TEXT", help="leave out recordings whose file name contains TEXT")
@@ -183,9 +187,9 @@ def main():
     args = parser.parse_args()
     labels = [tuple(item.split("=", 1)) for item in args.label]
 
-    paths = sorted(p for p in args.folder.iterdir() if p.suffix.lower() in (".wav", ".aup4") and not any(s in p.name for s in args.skip))
+    paths = sorted(p for p in args.folder.iterdir() if p.suffix.lower() in (*split.AUDIO, ".aup4") and not p.name.startswith(".") and not any(s in p.name for s in args.skip))
     if not paths:
-        sys.exit("No .wav or .aup4 files found.")
+        sys.exit("No recordings found (looked for " + ", ".join(split.AUDIO) + " and .aup4).")
     recs = []
     for path in paths:
         is_project = path.suffix.lower() == ".aup4"

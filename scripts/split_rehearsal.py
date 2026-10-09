@@ -4,11 +4,12 @@
 # ///
 """Find the songs in rehearsal recordings and write Audacity label files.
 
-    uv run split_rehearsal.py 2026-10-08            # every .wav and .aup4 in the folder
+    uv run split_rehearsal.py 2026-10-08            # every recording in the folder
     uv run split_rehearsal.py path/to/recording.wav
     uv run split_rehearsal.py --open path/to/project.aup4
 
-For each recording this writes "<recording>.labels.txt" next to it. In Audacity,
+Recordings can be WAV, FLAC, MP3, M4A, AIFF or OGG files, or Audacity (.aup4)
+projects. For each recording this writes "<recording>.labels.txt" next to it. In Audacity,
 open the recording, import that file as labels, fix up the regions and names,
 then export the labelled regions as separate files. --open hands both files to
 Audacity for you. Audacity projects are read directly and never modified.
@@ -24,20 +25,44 @@ first normalised to each recording's loud passages, so the cut-off is comparable
 between recordings whatever the input gain was. The audio itself is not changed.
 """
 import argparse
+import atexit
+import os
+import shutil
 import sqlite3
 import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 
 
+AUDIO = (".wav", ".flac", ".mp3", ".m4a", ".aif", ".aiff", ".ogg")
+converted = {}
+
+
+def readable(path):
+    """A path soundfile can open: the file itself, or a temporary WAV copy of an M4A, which it cannot read."""
+    path = Path(path)
+    if path.suffix.lower() != ".m4a":
+        return path
+    if path not in converted:
+        if not shutil.which("afconvert"):
+            sys.exit(f"{path.name}: reading M4A files uses afconvert, which is part of macOS. Convert the file to WAV or FLAC first.")
+        handle, copy = tempfile.mkstemp(suffix=".wav")
+        os.close(handle)
+        atexit.register(os.unlink, copy)
+        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI24", str(path), copy], check=True)
+        converted[path] = Path(copy)
+    return converted[path]
+
+
 def levels(path):
     """Level of each second of the recording, in dB."""
     out = []
-    with sf.SoundFile(path) as f:
+    with sf.SoundFile(readable(path)) as f:
         for block in f.blocks(blocksize=f.samplerate, dtype="float32", always_2d=True):
             mono = block.mean(axis=1)
             out.append(10 * np.log10(np.mean(mono * mono) + 1e-12))
@@ -175,7 +200,7 @@ def project_audio(path, start, end):
 
 
 def wav_audio(path, start, end):
-    with sf.SoundFile(path) as f:
+    with sf.SoundFile(readable(path)) as f:
         f.seek(round(start * f.samplerate))
         return f.read(round((end - start) * f.samplerate), dtype="float32", always_2d=True), f.samplerate
 
@@ -267,11 +292,11 @@ def main():
     recordings = []
     for path in args.paths:
         if path.is_dir():
-            recordings += sorted(p for p in path.iterdir() if p.suffix.lower() in (".wav", ".aup4"))
+            recordings += sorted(p for p in path.iterdir() if p.suffix.lower() in (*AUDIO, ".aup4") and not p.name.startswith("."))
         else:
             recordings.append(path)
     if not recordings:
-        sys.exit("No .wav or .aup4 files found.")
+        sys.exit("No recordings found (looked for " + ", ".join(AUDIO) + " and .aup4).")
 
     for wav in recordings:
         db = project_levels(wav) if wav.suffix.lower() == ".aup4" else levels(wav)

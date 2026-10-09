@@ -13,7 +13,8 @@ handles to where the song starts and ends, type its name, and save. Takes
 recorded by more than one mic (from pair_mics.py) are shown as one take: you
 can switch mics while listening, and one trim is applied to every mic's file.
 
-Songs are written to a "songs" folder beside the takes folder, each brought to
+Songs are written to a "songs" folder beside the takes folder, in the format
+chosen on the page (FLAC unless changed; the choice is remembered), each brought to
 the same loudness (see --loudness) with a limiter so nothing clips. The takes
 themselves are never changed. Press Ctrl-C here to stop.
 
@@ -37,6 +38,7 @@ import soundfile as sf
 
 PEAKS_PER_SECOND = 100
 FADE_IN, FADE_OUT = 0.01, 0.03  # seconds, just enough to avoid clicks at the cuts
+FORMATS = ("flac", "mp3", "wav", "m4a")
 TAKE_NAME = re.compile(r"^(\d+ .+? - \d+m\d\ds)(?: - (.+))?$")
 
 folder = out = None
@@ -47,6 +49,26 @@ lock = threading.Lock()
 
 def state_file():
     return out / ".trim.json"
+
+
+def settings_file():
+    return out / ".trim-settings.json"
+
+
+def song_format():
+    """The format songs are saved in for this session: the one last chosen, else FLAC."""
+    try:
+        chosen = json.loads(settings_file().read_text()).get("format")
+    except (OSError, ValueError):
+        chosen = None
+    return chosen if chosen in FORMATS else "flac"
+
+
+def choose_format(name):
+    if name not in FORMATS:
+        raise ValueError(f"unknown format {name}")
+    out.mkdir(exist_ok=True)
+    settings_file().write_text(json.dumps({"format": name}))
 
 
 def load_state():
@@ -163,9 +185,11 @@ def save(request):
         for old in state.get(take["id"], {}).get("files", []):  # replacing an earlier save of this take
             (out / old).unlink(missing_ok=True)
 
+        suffix = "." + song_format()
+
         def names(base):
             several = len(take["mics"]) > 1
-            return [f"{base} - {m['mic']}{options.suffix}" if several and m["mic"] else f"{base}{options.suffix}" for m in take["mics"]]
+            return [f"{base} - {m['mic']}{suffix}" if several and m["mic"] else f"{base}{suffix}" for m in take["mics"]]
 
         base, n = title, 1
         while any((out / name).exists() for name in names(base)):  # another take of the same song
@@ -216,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/":
                 self.reply(PAGE.encode(), "text/html; charset=utf-8")
             elif url.path == "/api/takes":
-                self.reply({"takes": list_takes(), "folder": str(folder), "out": str(out), "format": options.suffix[1:]})
+                self.reply({"takes": list_takes(), "folder": str(folder), "out": str(out), "format": song_format(), "formats": FORMATS})
             elif url.path == "/api/peaks" and self.take_file(parse_qs(url.query)["file"][0]):
                 self.reply(peaks(parse_qs(url.query)["file"][0]))
             elif url.path.startswith("/audio/") and self.take_file(unquote(url.path[7:])):
@@ -255,9 +279,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        if self.path != "/api/save":
+        if self.path not in ("/api/save", "/api/format"):
             return self.reply({"error": "not found"}, status=404)
         try:
+            if self.path == "/api/format":
+                choose_format(body.get("format"))
+                return self.reply({"format": song_format()})
             self.reply({"saved": save(body)})
         except Exception as error:  # shown in the page
             self.reply({"error": str(error)}, status=500)
@@ -284,6 +311,7 @@ PAGE = r"""<!doctype html>
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type=text] { flex: 1; min-width: 200px; font: inherit; font-size: 18px; padding: 8px 11px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; }
   input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px; }
   button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; cursor: pointer; }
   button:hover { border-color: var(--dim); }
   button.on { background: var(--accent); border-color: var(--accent); color: #0c1512; font-weight: 600; }
@@ -305,6 +333,7 @@ PAGE = r"""<!doctype html>
   <div class="row">
     <input type="text" id="title" list="titles" autocomplete="off" spellcheck="false">
     <datalist id="titles"></datalist>
+    <select id="format" title="Format for every song saved from now on in this session"></select>
     <button class="go" id="save">Save &amp; next<kbd>Enter</kbd></button>
   </div>
   <canvas id="wave"></canvas>
@@ -523,6 +552,12 @@ $('setStart').onclick = () => setHandle('start', now());
 $('setEnd').onclick = () => setHandle('end', now());
 $('zoom').onclick = zoomToTrim;
 $('save').onclick = saveTake;
+$('format').onchange = async () => {
+  const res = await fetch('/api/format', {method: 'POST', body: JSON.stringify({format: $('format').value})});
+  if (res.ok) say('Songs will now be saved as ' + $('format').value.toUpperCase() + '. Songs already saved keep their format until saved again.');
+  else say('Could not change the format.', true);
+  $('format').blur();
+};
 document.querySelectorAll('button').forEach(b => b.addEventListener('mouseup', () => b.blur()));
 
 window.addEventListener('keydown', e => {
@@ -555,7 +590,9 @@ window.addEventListener('keydown', e => {
 (async () => {
   const data = await (await fetch('/api/takes')).json();
   takes = data.takes;
-  $('where').textContent = 'Takes: ' + data.folder + '  →  songs saved as .' + data.format + ' in ' + data.out;
+  $('where').textContent = 'Takes: ' + data.folder + '  →  songs saved in ' + data.out;
+  data.formats.forEach(f => { const o = document.createElement('option'); o.value = f; o.textContent = f.toUpperCase(); $('format').append(o); });
+  $('format').value = data.format;
   if (!takes.length) { say('No .wav files in ' + data.folder, true); return; }
   const first = takes.findIndex(t => !t.saved);
   select(first < 0 ? 0 : first);
@@ -572,7 +609,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("folder", type=Path, help="folder of takes (.wav)")
     parser.add_argument("--out", type=Path, help='where to save songs (default: a "songs" folder beside the takes folder)')
-    parser.add_argument("--format", choices=["flac", "mp3", "m4a", "wav"], default="flac", help="format to save in (default flac, which is lossless)")
+    parser.add_argument("--format", choices=FORMATS, help="format to save songs in from now on; the same setting as the menu on the page (flac unless changed)")
     parser.add_argument("--bitrate", type=int, default=192, help="kbps for mp3 and m4a (default 192)")
     parser.add_argument("--loudness", type=float, default=-14.0, help="loudness every saved song is brought to, in LUFS (default -14, about what streaming services use)")
     parser.add_argument("--no-master", dest="loudness", action="store_const", const=None, help="save songs at the level of the take, without matching loudness")
@@ -581,9 +618,10 @@ def main():
     parser.add_argument("--port", type=int, default=8377)
     parser.add_argument("--no-browser", action="store_true", help="don't open the page automatically")
     options = parser.parse_args()
-    options.suffix = "." + options.format
     folder = options.folder.resolve()
     out = (options.out or folder.parent / "songs").resolve()
+    if options.format:
+        choose_format(options.format)
     if options.resave:
         for take in list_takes():
             if take["saved"]:
