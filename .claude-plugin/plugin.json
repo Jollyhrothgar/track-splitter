@@ -1,0 +1,10 @@
+{
+  "name": "track-splitter",
+  "description": "Split a long rehearsal, jam or gig recording into individual, named songs at matched loudness, with one file per mic when several recorded the same session.",
+  "author": {
+    "name": "Mike Beaumier",
+    "url": "https://github.com/Jollyhrothgar"
+  },
+  "repository": "https://github.com/Jollyhrothgar/track-splitter",
+  "license": "MIT"
+}

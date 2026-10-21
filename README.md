@@ -1,6 +1,6 @@
 # track-splitter
 
-A [Claude Code](https://claude.com/claude-code) skill that turns long recordings of a rehearsal, jam or gig into individual, named songs.
+A [Claude Code](https://claude.com/claude-code) plugin that turns long recordings of a rehearsal, jam or gig into individual, named songs.
 
 You point Claude at a folder of recordings and ask it to split the session. It finds where the songs are, cuts them into takes, and opens a small page in your browser where you trim each take, name it and save it. Songs come out at matched loudness, as FLAC, MP3, WAV or M4A. If several mics recorded the same session, it lines them up and gives you one file per mic for each song.
 
@@ -9,13 +9,22 @@ You point Claude at a folder of recordings and ask it to split the session. It f
 You need [uv](https://docs.astral.sh/uv/), which runs the scripts and fetches what they depend on.
 
 ```
+claude plugin marketplace add Jollyhrothgar/track-splitter
+claude plugin install track-splitter@track-splitter
+```
+
+`claude plugin update track-splitter@track-splitter` picks up new versions. Add `-s project` to the install line to turn it on for one project only.
+
+Without the plugin system, install the skill from a clone instead:
+
+```
 git clone https://github.com/Jollyhrothgar/track-splitter.git
 cd track-splitter
 ./install.sh                  # for every project
 ./install.sh --local [DIR]    # or for one project
 ```
 
-The skill is linked to this folder, so `git pull` updates it. Add `--copy` to copy the files instead. `./uninstall.sh` (with the same `--local` option) removes it.
+That links the skill to the clone, so `git pull` updates it. Add `--copy` to copy the files instead. `./uninstall.sh` (with the same `--local` option) removes it. Use one way or the other, not both, or Claude sees the skill twice.
 
 ## Use
 
@@ -38,4 +47,4 @@ This was built for one band's practice recordings and has not had much use beyon
 
 ## License
 
-GPL-3.0. See `LICENSE`.
+MIT. See `LICENSE`.

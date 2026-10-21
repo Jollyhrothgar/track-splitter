@@ -1,0 +1,15 @@
+{
+  "name": "track-splitter",
+  "description": "The track-splitter Claude Code plugin, installable on its own.",
+  "owner": {
+    "name": "Mike Beaumier",
+    "url": "https://github.com/Jollyhrothgar"
+  },
+  "plugins": [
+    {
+      "name": "track-splitter",
+      "source": "./",
+      "description": "Split a long rehearsal, jam or gig recording into individual, named songs at matched loudness, with one file per mic when several recorded the same session."
+    }
+  ]
+}
